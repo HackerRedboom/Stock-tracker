@@ -1,8 +1,10 @@
 name: Stock tracker
 
+# GitHub starts this only every few hours on free accounts,
+# so each run keeps checking every 5 minutes for almost 6 hours.
 on:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes (GitHub may run it a few minutes late)
+    - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
       test:
@@ -20,35 +22,34 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 355
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install
         run: pip install requests
 
-      - name: Check stock
+      - name: Check stock every 5 minutes
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TEST_MODE: ${{ github.event.inputs.test }}
-        run: python check_stock.py
-
-      - name: Save state
+          FIRST_TEST: ${{ github.event.inputs.test }}
         run: |
           git config user.name "stock-bot"
           git config user.email "stock-bot@users.noreply.github.com"
-          git add state.json
-          git diff --cached --quiet || (git commit -m "Update stock state" && git push)
-
-      - name: Keep page copy if it couldn't be read
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-pages
-          path: debug/
-          if-no-files-found: ignore
-          retention-days: 3
+          first=1
+          while [ $SECONDS -lt 20400 ]; do
+            if [ $first = 1 ]; then export TEST_MODE="$FIRST_TEST"; else export TEST_MODE=false; fi
+            first=0
+            python check_stock.py || echo "check failed, will retry"
+            git add state.json
+            if ! git diff --cached --quiet; then
+              git commit -q -m "Update stock state"
+              git pull -q --rebase || true
+              git push -q || echo "push failed, will retry"
+            fi
+            sleep 300
+          done
