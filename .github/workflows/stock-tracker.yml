@@ -1,7 +1,7 @@
 name: Stock tracker
 
 # GitHub starts this only every few hours on free accounts,
-# so each run keeps checking every 5 minutes for almost 6 hours.
+# so each run keeps checking about every 10 minutes for almost 6 hours.
 on:
   schedule:
     - cron: "0 * * * *"
@@ -33,7 +33,7 @@ jobs:
       - name: Install
         run: pip install requests
 
-      - name: Check stock every 5 minutes
+      - name: Check stock about every 10 minutes
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           FIRST_TEST: ${{ github.event.inputs.test }}
@@ -44,12 +44,18 @@ jobs:
           while [ $SECONDS -lt 20400 ]; do
             if [ $first = 1 ]; then export TEST_MODE="$FIRST_TEST"; else export TEST_MODE=false; fi
             first=0
-            python check_stock.py || echo "check failed, will retry"
+            rc=0
+            python check_stock.py || rc=$?
             git add state.json
             if ! git diff --cached --quiet; then
               git commit -q -m "Update stock state"
               git pull -q --rebase || true
               git push -q || echo "push failed, will retry"
             fi
-            sleep 300
+            if [ $rc = 2 ]; then
+              echo "Flipkart said too many requests - resting 30 minutes"
+              sleep 1800
+            else
+              sleep $(( 480 + RANDOM % 300 ))
+            fi
           done
