@@ -23,8 +23,8 @@ TEST_MODE = os.environ.get("TEST_MODE", "").lower() == "true"
 MENTION = os.environ.get("DISCORD_MENTION", "@everyone")
 
 # Warn on Discord if a page can't be read for this many checks in a row
-# (36 checks x 10 minutes = about 6 hours)
-UNKNOWN_WARN_AFTER = 36
+# (about 6 hours of failed checks)
+UNKNOWN_WARN_AFTER = 30
 
 HEADERS = {
     "User-Agent": (
@@ -36,6 +36,7 @@ HEADERS = {
 }
 
 IN, OUT, UNKNOWN = "IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"
+RATE_LIMITED = False
 
 
 def now_ist():
@@ -51,6 +52,10 @@ def fetch(url):
             r = requests.get(url, headers=HEADERS, timeout=30)
             last = (r.status_code, r.text)
             if r.status_code == 200:
+                return last
+            if r.status_code == 429:  # rate-limited: stop now, don't hammer the site
+                global RATE_LIMITED
+                RATE_LIMITED = True
                 return last
         except requests.RequestException as e:
             print(f"  fetch error: {e}")
@@ -211,6 +216,10 @@ def main():
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
         f.write("\n")
+
+    # exit code 2 tells the workflow to wait longer before the next check
+    if RATE_LIMITED:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
